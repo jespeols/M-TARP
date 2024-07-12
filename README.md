@@ -1,1 +1,2 @@
-# M-TARP - Multimodal Transformer for Antibiotic Resistance Prediction
+# M-TARP
+## Multimodal Transformer for Antibiotic Resistance Prediction
