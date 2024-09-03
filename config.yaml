@@ -1,0 +1,489 @@
+#################### PRE-TRAINING ####################
+pre-training:
+  wandb_mode: 'online' # 'online' for syncing, or 'disabled' for no tracking
+  project_name: M-TARP
+  name: MTARP_pt
+  exp_folder:
+  emb_dim: 512
+  ff_dim: 512
+  hidden_dim: 512 # for classifier
+  num_heads: 4
+  num_layers: 6
+  dropout_prob: 0.1
+  mask_prob_geno: 0.25
+  mask_prob_pheno: 0.25
+  num_known_ab: 
+  always_mask_replace: True
+  batch_size: 32
+  val_share: 0.1 # CV split
+  do_eval: True
+  max_seq_len: 'auto'
+  epochs: 100
+  early_stopping_patience: 5
+  wl_strength:      # 'mild' or 'strong' (or None for no weighting)
+  lr: 0.00002
+  weight_decay: 0.01
+  print_progress_every: 5000
+  report_every: 2000  # log training loss to wandb every X batches
+  savepath_vocab: 'vocab.pt'
+  save_model: True
+  random_state: 42
+
+#################### FINE-TUNING ####################
+fine_tuning:
+  wandb_mode: 'online'        # 'online' for syncing, or 'disabled' for no tracking
+  project_name: M-TARP
+  name: MTARP_ft
+  exp_folder:
+  ds_path: 'data/NCBI.pkl'
+  loadpath_vocab: 'vocab.pt'
+  construct_vocab: False
+  no_pt: False
+  model_path: 
+  batch_size: 16
+  val_share: 0.2
+  num_folds: 5
+  epochs: 100
+  mask_prob_geno: 0.75
+  no_geno_masking: False
+  mask_prob_pheno: 0.75
+  num_known_ab: 
+  num_known_classes:
+  always_mask_replace: True
+  loss_fn: 'bce'            # 'bce' or 'focal'
+  wl_strength:       # 'mild' or 'strong' (or None for no weighting)
+  gamma: 2                 # only for focal loss (optimizable)
+  lr: 0.00001
+  weight_decay: 0.01
+  early_stopping_patience: 10
+  print_progress_every: 1000
+  report_every: 500
+  save_model: False
+  random_state: 42
+
+#################### DATA & MISC. ####################
+specials:   
+  CLS: '[CLS]'
+  PAD: '[PAD]'
+  AB_MASK: '[AB_MASK]'
+  GENE_MASK: '[GENE_MASK]'
+  UNK: '[UNK]'
+data:
+  exclude_antibiotics: ['TZP', 'AMC', 'OFX', 'POL', 'NOR', 'TGC', 'DOR', 'COL', 'AMX', 'NET', 'PIP'] # 15 AB
+  pathogens: ['ESCCOL']
+  NCBI:
+    prepare_data: False
+    raw_path: 'data/raw/NCBI.tsv'
+    save_path: 'data/NCBI.pkl'
+    load_path: 'data/NCBI.pkl'
+    threshold_year: 1970
+    include_phenotype: True
+    exclude_assembly_variants: ["=PARTIAL", "=MISTRANSLATION", "=HMM"] 
+  TESSy:
+    prepare_data: False
+    raw_path: 'data/raw/AMR_TEST.csv'
+    save_path: 'data/TESSy.pkl'
+    load_path: 'data/TESSy.pkl'
+    country_code_to_name:
+      'AD': 'Andorra'
+      'AL': 'Albania'
+      'AM': 'Armenia'
+      'AT': 'Austria'
+      'AZ': 'Azerbaijan'
+      'BA': 'Bosnia and Herzegovina'
+      'BE': 'Belgium'
+      'BG': 'Bulgaria'
+      'BY': 'Belarus'
+      'CH': 'Switzerland'
+      'CY': 'Cyprus'
+      'CZ': 'Czechia'
+      'DE': 'Germany'
+      'DK': 'Denmark'
+      'EE': 'Estonia'
+      'EL': 'Greece'
+      'ES': 'Spain'
+      'FI': 'Finland'
+      'FR': 'France'
+      'GE': 'Georgia'
+      'HR': 'Croatia'
+      'HU': 'Hungary'
+      'IE': 'Ireland'
+      'IL': 'Israel'
+      'IS': 'Iceland'
+      'IT': 'Italy'
+      'KG': 'Kyrgyzstan'
+      'KZ': 'Kazakhstan'
+      'LI': 'Liechtenstein'
+      'LT': 'Lithuania'
+      'LU': 'Luxembourg'
+      'LV': 'Latvia'
+      'MC': 'Monaco'
+      'MD': 'Moldova'
+      'ME': 'Montenegro'
+      'MK': 'Republic of North Macedonia'
+      'MT': 'Malta'
+      'NL': 'Netherlands'
+      'NO': 'Norway'
+      'PL': 'Poland'
+      'PT': 'Portugal'
+      'RO': 'Romania'
+      'RS': 'Serbia'
+      'RU': 'Russia'
+      'SE': 'Sweden'
+      'SI': 'Slovenia'
+      'SK': 'Slovakia'
+      'SM': 'San Marino'
+      'TJ': 'Tajikistan'
+      'TM': 'Turkmenistan'
+      'TR': 'Türkiye'
+      'UA': 'Ukraine'
+      'UK': 'UK'
+      'UZ': 'Uzbekistan'
+      'XK': 'Kosovo'
+  antibiotics:
+    abbr_to_name:
+      AMC: 'Amoxicillin/Clavulanic acid'
+      AMK: 'Amikacin'
+      AMP: 'Ampicillin'
+      AMX: 'Amoxicillin'
+      CAZ: 'Ceftazidime'
+      CIP: 'Ciprofloxacin'
+      COL: 'Colistin'
+      CRO: 'Ceftriaxone'
+      CTX: 'Cefotaxime'
+      DOR: 'Doripenem'
+      ETP: 'Ertapenem'
+      FEP: 'Cefepime'
+      GEN: 'Gentamicin'
+      IPM: 'Imipenem'
+      LVX: 'Levofloxacin'
+      MEM: 'Meropenem'
+      MFX: 'Moxifloxacin'
+      NAL: 'Nalidixic acid'
+      NET: 'Netilmicin'
+      NOR: 'Norfloxacin'
+      OFX: 'Ofloxacin'
+      PIP: 'Piperacillin'
+      POL: 'Polymyxin B'
+      TGC: 'Tigecycline'
+      TOB: 'Tobramycin'
+      TZP: 'Piperacillin/Tazobactam'
+    ab_weights_strong: # S, R | Four levels: 40-60, 30-70, 20-80, 10-90 
+      AMC: 0.6
+      AMK: 0.9
+      AMP: 0.6
+      AMX: 0.4
+      CAZ: 0.7
+      CIP: 0.8
+      COL: 0.8
+      CRO: 0.8
+      CTX: 0.4
+      DOR: 0.7
+      ETP: 0.9
+      FEP: 0.8
+      GEN: 0.8
+      IPM: 0.9
+      LVX: 0.7
+      MEM: 0.9
+      MFX: 0.6
+      NAL: 0.9
+      NET: 0.9
+      NOR: 0.8
+      OFX: 0.8
+      PIP: 0.8
+      POL: 0.9
+      TGC: 0.9
+      TOB: 0.9
+      TZP: 0.9
+    ab_weights_mild: # S, R
+      AMC: 0.55
+      AMK: 0.8
+      AMP: 0.55
+      AMX: 0.45
+      CAZ: 0.6
+      CIP: 0.7
+      COL: 0.7
+      CRO: 0.7
+      CTX: 0.45
+      DOR: 0.6
+      ETP: 0.8
+      FEP: 0.7
+      GEN: 0.7
+      IPM: 0.8
+      LVX: 0.6
+      MEM: 0.8
+      MFX: 0.55
+      NAL: 0.8
+      NET: 0.8
+      NOR: 0.7
+      OFX: 0.7
+      PIP: 0.7
+      POL: 0.8
+      TGC: 0.8
+      TOB: 0.8
+      TZP: 0.8
+    name_to_abbr:
+      Amoxicillin/Clavulanic acid: 'AMC'
+      Amikacin: 'AMK'
+      Ampicillin: 'AMP'
+      Amoxicillin: 'AMX'
+      Ceftazidime: 'CAZ'
+      Ciprofloxacin: 'CIP'
+      Colistin: 'COL'
+      Ceftriaxone: 'CRO'
+      Cefotaxime: 'CTX'
+      Doripenem: 'DOR'
+      Ertapenem: 'ETP'
+      Cefepime: 'FEP'
+      Gentamicin: 'GEN'
+      Imipenem: 'IPM'
+      Levofloxacin: 'LVX'
+      Meropenem: 'MEM'
+      Moxifloxacin: 'MFX'
+      Nalidixic acid: 'NAL'
+      Netilmicin: 'NET'
+      Norfloxacin: 'NOR'
+      Ofloxacin: 'OFX'
+      Piperacillin: 'PIP'
+      Polymyxin B: 'POL'
+      Tigecycline: 'TGC'
+      Tobramycin: 'TOB'
+      Piperacillin/Tazobactam: 'TZP'
+    classes:
+      Aminoglycosides: ['AMK', 'GEN', 'TOB', 'NET']
+      Carbapenems: ['IPM', 'MEM', 'DOR', 'ETP']
+      Cephalosporins: ['CTX', 'CRO', 'CAZ', 'FEP']
+      Fluoroquinolones: ['CIP', 'OFX', 'LVX', 'NOR', 'MFX', 'NAL']
+      Penicillins: ['AMP', 'AMX', 'AMC', 'PIP', 'TZP']
+      Polypeptides: ['COL', 'POL']
+      Tetracyclines: ['TGC']
+    abbr_to_class:
+      AMK: 'Aminoglycosides'
+      GEN: 'Aminoglycosides'
+      TOB: 'Aminoglycosides'
+      NET: 'Aminoglycosides'
+      IPM: 'Carbapenems'
+      MEM: 'Carbapenems'
+      DOR: 'Carbapenems'
+      ETP: 'Carbapenems'
+      CTX: 'Cephalosporins'
+      CRO: 'Cephalosporins'
+      CAZ: 'Cephalosporins'
+      FEP: 'Cephalosporins'
+      CIP: 'Fluoroquinolones'
+      OFX: 'Fluoroquinolones'
+      LVX: 'Fluoroquinolones'
+      NOR: 'Fluoroquinolones'
+      MFX: 'Fluoroquinolones'
+      NAL: 'Fluoroquinolones'
+      AMP: 'Penicillins'
+      AMX: 'Penicillins'
+      AMC: 'Penicillins'
+      PIP: 'Penicillins'
+      TZP: 'Penicillins'
+      COL: 'Polypeptides'
+      POL: 'Polypeptides'
+      TGC: 'Tetracyclines'
+    class_enc:
+      Aminoglycosides: 0
+      Carbapenems: 1
+      Cephalosporins: 2
+      Fluoroquinolones: 3
+      Penicillins: 4
+      Polypeptides: 5
+      Tetracyclines: 6
+    class_enc_to_class:
+      0: 'Aminoglycosides'
+      1: 'Carbapenems'
+      2: 'Cephalosporins'
+      3: 'Fluoroquinolones'
+      4: 'Penicillins'
+      5: 'Polypeptides'
+      6: 'Tetracyclines'
+    abbr_to_class_enc:
+      AMK: 0
+      GEN: 0
+      TOB: 0
+      NET: 0
+      IPM: 1
+      MEM: 1
+      DOR: 1
+      ETP: 1
+      CTX: 2
+      CRO: 2
+      CAZ: 2
+      FEP: 2
+      CIP: 3
+      OFX: 3
+      LVX: 3
+      NOR: 3
+      MFX: 3
+      NAL: 3
+      AMP: 4
+      AMX: 4
+      AMC: 4
+      PIP: 4
+      TZP: 4
+      COL: 5
+      POL: 5
+      TGC: 6
+  region_mapping:
+    'Afghanistan': 'Asia'
+    'Albania': 'Europe'
+    'Algeria': 'Africa'
+    'Angola': 'Africa'
+    'Antarctica': 'Oceania'
+    'Argentina': 'South America'
+    'Armenia': 'Asia'
+    'Australia': 'Oceania'
+    'Austria': 'Europe'
+    'Bahrain': 'Asia'
+    'Bangladesh': 'Asia'
+    'Belarus': 'Europe'
+    'Belgium': 'Europe'
+    'Benin': 'Africa'
+    'Bolivia': 'South America'
+    'Botswana': 'Africa'
+    'Brazil': 'South America'
+    'Brunei': 'Asia'
+    'Bulgaria': 'Europe'
+    'Burkina Faso': 'Africa'
+    'Burundi': 'Africa'
+    'Cambodia': 'Asia'
+    'Cameroon': 'Africa'
+    'Canada': 'North America'
+    'Chile': 'South America'
+    'China': 'Asia'
+    'Colombia': 'South America'
+    'Costa Rica': 'North America'
+    "Cote d'Ivoire": 'Africa'
+    'Croatia': 'Europe'
+    'Cuba': 'North America'
+    'Cyprus': 'Europe'
+    'Czech Republic': 'Europe'
+    'Democratic Republic of the Congo': 'Africa'
+    'Denmark': 'Europe'
+    'Djibouti': 'Africa'
+    'Dominican Republic': 'North America'
+    'Ecuador': 'South America'
+    'Egypt': 'Africa'
+    'Estonia': 'Europe'
+    'Ethiopia': 'Africa'
+    'Finland': 'Europe'
+    'France': 'Europe'
+    'France and Algeria': 'Europe'
+    'Gabon': 'Africa'
+    'Gambia': 'Africa'
+    'Georgia': 'Asia'
+    'Germany': 'Europe'
+    'Ghana': 'Africa'
+    'Greece': 'Europe'
+    'Greenland': 'Europe'
+    'Guadeloupe': 'North America'
+    'Guam': 'Oceania'
+    'Guatemala': 'North America'
+    'Guinea': 'Africa'
+    'Guinea-Bissau': 'Africa'
+    'Guyana': 'South America'
+    'Haiti': 'North America'
+    'Honduras': 'North America'
+    'Hong Kong': 'Asia'
+    'Hungary': 'Europe'
+    'Iceland': 'Europe'
+    'India': 'Asia'
+    'Indonesia': 'Asia'
+    'Iran': 'Asia'
+    'Iraq': 'Asia'
+    'Ireland': 'Europe'
+    'Israel': 'Asia'
+    'Italy': 'Europe'
+    'Japan': 'Asia'
+    'Jordan': 'Asia'
+    'Kazakhstan': 'Europe'
+    'Kenya': 'Africa'
+    'Korea': 'Asia'
+    'Kosovo': 'Europe'
+    'Kuwait': 'Asia'
+    'Kyrgyzstan': 'Asia'
+    'Laos': 'Asia'
+    'Latvia': 'Europe'
+    'Lebanon': 'Asia'
+    'Lithuania': 'Europe'
+    'Luxembourg': 'Europe'
+    'Macedonia': 'Europe'
+    'Madagascar': 'Africa'
+    'Malawi': 'Africa'
+    'Malaysia': 'Asia'
+    'Mali': 'Africa'
+    'Mauritius': 'Africa'
+    'Mexico': 'North America'
+    'Mongolia': 'Asia'
+    'Morocco': 'Africa'
+    'Mozambique': 'Africa'
+    'Myanmar': 'Asia'
+    'Namibia': 'Africa'
+    'Nepal': 'Asia'
+    'Netherlands': 'Europe'
+    'New Caledonia': 'Oceania'
+    'New Zealand': 'Oceania'
+    'Nicaragua': 'North America'
+    'Niger': 'Africa'
+    'Nigeria': 'Africa'
+    'North America': 'North America'
+    'Norway': 'Europe'
+    'Oceania': 'Oceania'
+    'Pacific Ocean': 'Oceania'
+    'Pakistan': 'Asia'
+    'Palestine': 'Asia'
+    'Panama': 'North America'
+    'Papua New Guinea': 'Oceania'
+    'Paraguay': 'South America'
+    'Peru': 'South America'
+    'Philippines': 'Asia'
+    'Poland': 'Europe'
+    'Portugal': 'Europe'
+    'Puerto Rico': 'North America'
+    'Qatar': 'Asia'
+    'Republic of the Congo': 'Africa'
+    'Reunion': 'Africa'
+    'Romania': 'Europe'
+    'Russia': 'Europe'
+    'Rwanda': 'Africa'
+    'Saudi Arabia': 'Asia'
+    'Senegal': 'Africa'
+    'Serbia': 'Europe'
+    'Singapore': 'Asia'
+    'Slovakia': 'Europe'
+    'Slovenia': 'Europe'
+    'Somalia': 'Africa'
+    'South Africa': 'Africa'
+    'South America': 'South America'
+    'South Korea': 'Asia'
+    'South Sudan': 'Africa'
+    'Spain': 'Europe'
+    'Sri Lanka': 'Asia'
+    'Sudan': 'Africa'
+    'Sweden': 'Europe'
+    'Switzerland': 'Europe'
+    'Syria': 'Asia'
+    'Taiwan': 'Asia'
+    'Tanzania': 'Africa'
+    'Thailand': 'Asia'
+    'Togo': 'Africa'
+    'Tonga': 'Oceania'
+    'Tunisia': 'Africa'
+    'Turkey': 'Asia'
+    'UAE': 'Asia'
+    'UK': 'Europe'
+    'Uganda': 'Africa'
+    'Ukraine': 'Europe'
+    'United Arab Emirates': 'Asia'
+    'Uruguay': 'South America'
+    'USA': 'North America'
+    'Uzbekistan': 'Asia'
+    'Venezuela': 'South America'
+    'Viet Nam': 'Asia'
+    'West Bank': 'Asia'
+    'Zaire': 'Africa'
+    'Zambia': 'Africa'
+    
