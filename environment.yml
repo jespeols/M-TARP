@@ -1,4 +1,4 @@
-name: ARFusion
+name: MTARP
 channels:
   - pytorch
   - nvidia
