@@ -1,4 +1,3 @@
-import os
 import torch
 import torch.nn as nn
 import numpy as np
@@ -10,54 +9,52 @@ from torch.utils.data import DataLoader
 from pathlib import Path
 from datetime import datetime
 
-from utils import WeightedBCEWithLogitsLoss, BinaryFocalWithLogitsLoss
+from utils import WeightedBCEWithLogitsLoss
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-########################################################################################################################
-############################################### PRE-TRAINING TRAINER ###################################################
-########################################################################################################################
-
-class MMBertPreTrainer(nn.Module):
+class Pretrainer(nn.Module):
     
-    def __init__(self,
-                 config: dict,
-                 model,
-                 antibiotics: list, # list of antibiotics in the dataset
-                 train_set,
-                 val_set,
-                 results_dir: Path = None,
-                 ):
-        super(MMBertPreTrainer, self).__init__()
+    def __init__(
+        self,
+        config: dict,
+        model,
+        antibiotics: list, # list of antibiotics in the dataset
+        train_set,
+        val_set,
+        results_dir: Path,            
+    ):
+        super(Pretrainer, self).__init__()
         
-        self.random_state = config["random_state"]
+        config_pt = config["pretraining"]
+        self.random_state = config_pt["random_state"]
         np.random.seed(self.random_state)
         torch.manual_seed(self.random_state)
         torch.cuda.manual_seed(self.random_state)
         torch.backends.cudnn.deterministic = True 
         
         self.model = model
-        self.project_name = config["project_name"]
-        self.exp_folder = config["exp_folder"]
-        self.wandb_name = config["name"] if config["name"] else datetime.now().strftime("%Y%m%d-%H%M%S")
+        self.project_name = config_pt["project_name"]
+        self.exp_folder = config_pt["exp_folder"]
+        self.wandb_name = config_pt["name"] if config_pt["name"] else datetime.now().strftime("%Y%m%d-%H%M%S")
         self.antibiotics = antibiotics
         self.num_ab = len(self.antibiotics)
         
         self.train_set, self.train_size = train_set, len(train_set)
         self.val_set, self.val_size = val_set, len(val_set) 
-        assert round(self.val_size / (self.train_size + self.val_size), 2) == config["val_share"], "Validation set size does not match intended val_share"
-        self.val_share, self.train_share = config["val_share"], 1 - config["val_share"]
-        self.batch_size = config["batch_size"]
+        assert round(self.val_size / (self.train_size + self.val_size), 2) == config_pt["val_share"], "Validation set size does not match intended val_share"
+        self.val_share, self.train_share = config_pt["val_share"], 1 - config_pt["val_share"]
+        self.batch_size = config_pt["batch_size"]
         self.val_batch_size = 16*self.batch_size
         self.num_batches = np.ceil(self.train_size / self.batch_size).astype(int)
         self.vocab = self.train_set.vocab
          
-        self.lr = config["lr"]
-        self.weight_decay = config["weight_decay"]
-        self.epochs = config["epochs"]
-        self.patience = config["early_stopping_patience"]
-        self.save_model_ = config["save_model"]
-        self.do_eval = config["do_eval"] 
+        self.lr = config_pt["lr"]
+        self.weight_decay = config_pt["weight_decay"]
+        self.epochs = config_pt["epochs"]
+        self.patience = config_pt["early_stopping_patience"]
+        self.save_model_ = config_pt["save_model"]
+        self.do_eval = config_pt["do_eval"] 
         
         self.mask_prob_geno = self.train_set.mask_prob_geno
         self.mask_prob_pheno = self.train_set.mask_prob_pheno
@@ -65,9 +62,7 @@ class MMBertPreTrainer(nn.Module):
         self.num_known_classes = self.train_set.num_known_classes
         
         self.geno_criterion = nn.CrossEntropyLoss(ignore_index = -1).to(device) # ignores loss where target_ids == -1
-        self.loss_fn = config["loss_fn"]
-        self.gamma = config["gamma"]  ## hyperparameters for focal loss
-        self.wl_strength = config["wl_strength"]  ## positive class weight for weighted BCELoss
+        self.wl_strength = config_pt["wl_strength"]  ## positive class weight for weighted BCELoss
         if self.wl_strength:
             self.ab_weights = config['data']['antibiotics']['ab_weights_'+self.wl_strength]
             self.ab_weights = {ab: v for ab, v in self.ab_weights.items() if ab in self.antibiotics}
@@ -75,24 +70,16 @@ class MMBertPreTrainer(nn.Module):
         else:
             self.alphas = [0.5]*self.num_ab         ## equal class weights for all antibiotics
             
-        if self.loss_fn == 'bce':
-            self.ab_criterions = [WeightedBCEWithLogitsLoss(alpha=alpha).to(device) for alpha in self.alphas]
-        elif self.loss_fn == 'focal':                   ## can implement antibiotic-specific parameters
-            self.ab_criterions = [BinaryFocalWithLogitsLoss(alpha, self.gamma).to(device) for alpha in self.alphas]
-        else:
-            raise NotImplementedError("Only 'bce' and 'focal' functions are supported")
+        self.ab_criterions = [WeightedBCEWithLogitsLoss(alpha=alpha).to(device) for alpha in self.alphas]
         self.optimizer = torch.optim.AdamW(model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         self.scheduler = None
-        # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=5, gamma=0.9)
-        # self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.98)
                  
         self.current_epoch = 0
-        self.report_every = config["report_every"]
-        self.print_progress_every = config["print_progress_every"]
+        self.report_every = config_pt["report_every"]
+        self.print_progress_every = config_pt["print_progress_every"]
         self._splitter_size = 80
         self.results_dir = results_dir
-        if self.results_dir:
-            self.results_dir.mkdir(parents=True, exist_ok=True) 
+        self.results_dir.mkdir(parents=True, exist_ok=True) 
         
         
     def print_model_summary(self):        
@@ -136,9 +123,6 @@ class MMBertPreTrainer(nn.Module):
             print(f"Number of known classes: {self.num_known_classes}")
         print(f"Number of epochs: {self.epochs}")
         print(f"Early stopping patience: {self.patience}")
-        print(f"Loss function: {'BCE' if self.loss_fn == 'bce' else 'Focal'}")
-        if self.loss_fn == 'focal':
-            print(f"Gamma: {self.gamma}")
         print(f"Learning rate: {self.lr}")
         print(f"Weight decay: {self.weight_decay}")
         print("="*self._splitter_size)
@@ -288,7 +272,6 @@ class MMBertPreTrainer(nn.Module):
             self.optimizer.zero_grad() # zero out gradients
             
             input, target_ids, target_res, token_types, attn_mask = batch   
-            # input, target_ids, target_res, token_types, attn_mask, masked_sequences = batch   
             pred_logits, token_pred = self.model(input, token_types, attn_mask) # get predictions for all antibiotics
             ab_mask = target_res != -1 # (batch_size, num_ab), True if antibiotic is masked, False otherwise
             
@@ -406,7 +389,6 @@ class MMBertPreTrainer(nn.Module):
             geno_batches, pheno_batches = 0, 0
             for i, batch in enumerate(loader):                
                 input, target_ids, target_res, token_types, attn_mask = batch   
-                # input, target_ids, target_res, token_types, attn_mask, sequences, masked_sequences = batch  
                 
                 pred_logits, token_pred = self.model(input, token_types, attn_mask) # get predictions for all antibiotics
                 pred_res = torch.where(pred_logits > 0, torch.ones_like(pred_logits), torch.zeros_like(pred_logits)) # logits -> 0/1 (S/R)
@@ -659,7 +641,6 @@ class MMBertPreTrainer(nn.Module):
                 "num_antibiotics": self.num_ab,
                 "antibiotics": self.antibiotics,
                 "antibiotic weights:": self.ab_weights if self.wl_strength else None,
-                "loss_fn": self.loss_fn,
                 "train_size": self.train_size,
                 "random_state": self.random_state,
                 'val_share': self.val_share,

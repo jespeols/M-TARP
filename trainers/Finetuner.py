@@ -9,15 +9,14 @@ import wandb
 
 from torch.utils.data import DataLoader
 from pathlib import Path
-from itertools import chain
 from datetime import datetime
 from sklearn.metrics import roc_curve, auc, roc_auc_score
 
-from utils import WeightedBCEWithLogitsLoss, BinaryFocalWithLogitsLoss
+from utils import WeightedBCEWithLogitsLoss
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-class MMBertFineTuner():
+class Finetuner():
     
     def __init__(
         self,
@@ -30,9 +29,9 @@ class MMBertFineTuner():
         ds_size: int = None,
         CV_mode: bool = False
     ):
-        super(MMBertFineTuner, self).__init__()
+        super(Finetuner, self).__init__()
         
-        config_ft = config["fine_tuning"]
+        config_ft = config["finetuning"]
         self.random_state = config_ft['random_state']
         np.random.seed(self.random_state)
         torch.manual_seed(self.random_state)
@@ -71,8 +70,6 @@ class MMBertFineTuner():
         self.num_known_ab = self.train_set.num_known_ab
         self.num_known_classes = self.train_set.num_known_classes
         
-        self.loss_fn = config_ft["loss_fn"]
-        self.gamma = config_ft["gamma"]
         self.wl_strength = config_ft["wl_strength"] 
         if self.wl_strength:
             self.ab_weights = config['data']['antibiotics']['ab_weights_'+self.wl_strength]
@@ -81,16 +78,9 @@ class MMBertFineTuner():
         else:   
             self.alphas = [0.5]*self.num_ab   ## equal class weights for all antibiotics
             
-        if self.loss_fn == 'bce':
-            self.ab_criterions = [WeightedBCEWithLogitsLoss(alpha=alpha).to(device) for alpha in self.alphas]
-        elif self.loss_fn == 'focal':       ## TODO: Add individual parameter values for each antibiotic
-            self.ab_criterions = [BinaryFocalWithLogitsLoss(alpha, self.gamma).to(device) for alpha in self.alphas]
-        else:
-            raise NotImplementedError("Only 'bce' and 'focal' functions are supported")
+        self.ab_criterions = [WeightedBCEWithLogitsLoss(alpha=alpha).to(device) for alpha in self.alphas]
         self.optimizer = torch.optim.AdamW(model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         self.scheduler = None
-        # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=5, gamma=0.9)
-        # self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.98)
                  
         self.current_epoch = 0
         self.CV_mode = CV_mode
@@ -152,9 +142,6 @@ class MMBertFineTuner():
             print(f"Number of known classes: {self.num_known_classes}")
         print(f"Number of epochs: {self.epochs}")
         print(f"Early stopping patience: {self.patience}")
-        print(f"Loss function: {'BCE' if self.loss_fn == 'bce' else 'Focal'}")
-        if self.loss_fn == 'focal':
-            print(f"Gamma: {self.gamma}")
         print(f"Learning rate: {self.lr}")
         print(f"Weight decay: {self.weight_decay}")
         print("="*self._splitter_size)
@@ -584,7 +571,6 @@ class MMBertFineTuner():
                 "emb_dim": self.model.emb_dim,
                 'ff_dim': self.model.ff_dim,
                 "lr": self.lr,
-                "loss_fn": self.loss_fn,
                 "ab_weights": self.ab_weights if self.wl_strength else None,
                 "weight_decay": self.weight_decay,
                 "masking_method": self.masking_method, 

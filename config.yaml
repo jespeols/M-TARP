@@ -1,23 +1,25 @@
+################## MODEL PARAMETERS ####################
+emb_dim: 512
+ff_dim: 512
+hidden_dim: 512 # for classifier
+num_heads: 4
+num_layers: 6
+dropout_prob: 0.1
+
 #################### PRE-TRAINING ####################
-pre-training:
+pretraining:
   wandb_mode: 'online' # 'online' for syncing, or 'disabled' for no tracking
   project_name: M-TARP
-  name: MTARP_pt
+  name: pretraining_01
   exp_folder:
-  emb_dim: 512
-  ff_dim: 512
-  hidden_dim: 512 # for classifier
-  num_heads: 4
-  num_layers: 6
-  dropout_prob: 0.1
   mask_prob_geno: 0.25
-  mask_prob_pheno: 0.25
+  mask_prob_pheno:
   num_known_ab: 
+  num_known_classes: 2
   always_mask_replace: True
   batch_size: 32
   val_share: 0.1 # CV split
   do_eval: True
-  max_seq_len: 'auto'
   epochs: 100
   early_stopping_patience: 5
   wl_strength:      # 'mild' or 'strong' (or None for no weighting)
@@ -25,15 +27,14 @@ pre-training:
   weight_decay: 0.01
   print_progress_every: 5000
   report_every: 2000  # log training loss to wandb every X batches
-  savepath_vocab: 'vocab.pt'
   save_model: True
   random_state: 42
 
 #################### FINE-TUNING ####################
-fine_tuning:
+finetuning:
   wandb_mode: 'online'        # 'online' for syncing, or 'disabled' for no tracking
   project_name: M-TARP
-  name: MTARP_ft
+  name: finetuning_01
   exp_folder:
   ds_path: 'data/NCBI.pkl'
   loadpath_vocab: 'vocab.pt'
@@ -50,9 +51,7 @@ fine_tuning:
   num_known_ab: 
   num_known_classes:
   always_mask_replace: True
-  loss_fn: 'bce'            # 'bce' or 'focal'
-  wl_strength:       # 'mild' or 'strong' (or None for no weighting)
-  gamma: 2                 # only for focal loss (optimizable)
+  wl_strength: 'mild'       # 'mild' or 'strong' (or None for no weighting)
   lr: 0.00001
   weight_decay: 0.01
   early_stopping_patience: 10
@@ -62,6 +61,8 @@ fine_tuning:
   random_state: 42
 
 #################### DATA & MISC. ####################
+max_seq_len: 'auto'
+savepath_vocab: 'vocab.pt'
 specials:   
   CLS: '[CLS]'
   PAD: '[PAD]'
@@ -72,15 +73,16 @@ data:
   exclude_antibiotics: ['TZP', 'AMC', 'OFX', 'POL', 'NOR', 'TGC', 'DOR', 'COL', 'AMX', 'NET', 'PIP'] # 15 AB
   pathogens: ['ESCCOL']
   NCBI:
-    prepare_data: False
+    parse_data: False
     raw_path: 'data/raw/NCBI.tsv'
     save_path: 'data/NCBI.pkl'
     load_path: 'data/NCBI.pkl'
     threshold_year: 1970
     include_phenotype: True
     exclude_assembly_variants: ["=PARTIAL", "=MISTRANSLATION", "=HMM"] 
+    gene_count_threshold: 
   TESSy:
-    prepare_data: False
+    parse_data: False
     raw_path: 'data/raw/AMR_TEST.csv'
     save_path: 'data/TESSy.pkl'
     load_path: 'data/TESSy.pkl'

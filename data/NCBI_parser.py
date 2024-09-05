@@ -4,23 +4,18 @@ import pandas as pd
 
 from pathlib import Path
 
-# user-defined functions
-from utils import filter_gene_counts
-
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 os.chdir(BASE_DIR)
 
-def preprocess_NCBI(path,
-                    save_path = None,
-                    include_phenotype: bool = False, 
-                    ab_names_to_abbr: dict = None,
-                    exclude_antibiotics: list = None,
-                    threshold_year: int = None,
-                    exclude_genotypes: list = None,
-                    exclude_assembly_variants: list = None,
-                    exclusion_chars: list = None,
-                    gene_count_threshold: int = None,
-                    ):
+def parse_NCBI(path,
+                save_path = None,
+                include_phenotype: bool = False, 
+                ab_names_to_abbr: dict = None,
+                exclude_antibiotics: list = None,
+                threshold_year: int = None,
+                exclude_assembly_variants: list = None,
+                gene_count_threshold: int = None,
+                ):
 
     NCBI_data = pd.read_csv(path, sep='\t', low_memory=False) 
     cols = ['collection_date', 'geo_loc_name', 'AMR_genotypes_core']
@@ -81,22 +76,13 @@ def preprocess_NCBI(path,
         df.drop(indices, inplace=True)
         
     df['genotypes'] = df['genotypes'].apply(lambda x: list(set([g.strip() for g in x]))) # remove whitespace and duplicates
-    if exclude_genotypes: 
-        print(f"Removing genotypes: {exclude_genotypes}")
-        df['genotypes'] = df['genotypes'].apply(lambda x: [g for g in x if g not in exclude_genotypes]) 
     
     if exclude_assembly_variants: # Examples: ["=PARTIAL", "=MISTRANSLATION", "=HMM"]
         print(f"Removing genotypes with assembly variants: {exclude_assembly_variants}")
         df['genotypes'] = df['genotypes'].apply(lambda x: [g for g in x if not g.endswith(tuple(exclude_assembly_variants))]) 
     df = df[df['genotypes'].apply(lambda x: len(x) > 0)] # Remove any rows where genotypes are empty
-    
-    if exclusion_chars:
-        # old_genotypes = df['genotypes'].copy() # save old genotypes for later
-        for char in exclusion_chars:
-            print(f"Splitting genotypes by '{char}', removing it and everything after it")
-            df['genotypes'] = df['genotypes'].apply(lambda x: list(set([g.split(char)[0] for g in x])))
-            
-    # Remove cases where there is both a genotype and an assembly variant
+      
+    # Remove cases with multiple assembly variants of a genotype
     assembly_chars = ['=PARTIAL', '=MISTRANSLATION', '=HMM', '=PARTIAL_END_OF_CONTIG']
     df['genotypes'] = df['genotypes'].apply(
         lambda x: list(set(x) - set([g for g in x if g.endswith(tuple(assembly_chars)) and g.split("=")[0] in x])))
@@ -105,6 +91,8 @@ def preprocess_NCBI(path,
     df['num_point_mutations'] = df['genotypes'].apply(lambda x: len([g for g in x if '=POINT' in g]))
     
     if gene_count_threshold:
+        df = df[df['num_genotypes'] <= gene_count_threshold]
+        print(f"Dropping {df[df['num_genotypes'] > gene_count_threshold].shape[0]:,} isolates with more than {gene_count_threshold} genotypes")
         df = filter_gene_counts(df, gene_count_threshold)
 
     # Exclude cases where there is only one genotype and no other info

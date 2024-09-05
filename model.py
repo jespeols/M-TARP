@@ -1,4 +1,3 @@
-# %%
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -119,11 +118,12 @@ class Model(nn.Module):
             max_seq_len: int,
             num_ab: int,
             pad_idx: int = 1,
-            pheno_only: bool = False
+            pheno_only: bool = False,
+            random_state: int = 42,
         ):
         super(Model, self).__init__()
         
-        self.random_state = config['random_state']
+        self.random_state = random_state
         torch.manual_seed(self.random_state)
         torch.cuda.manual_seed(self.random_state)
         torch.backends.cudnn.deterministic = True

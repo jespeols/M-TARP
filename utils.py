@@ -11,7 +11,7 @@ import matplotlib.lines as mlines
 from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 
-with open(os.path.join(BASE_DIR, 'config_MM.yaml'), 'r') as f:
+with open(os.path.join(BASE_DIR, 'config.yaml'), 'r') as f:
     config = yaml.safe_load(f)
     
 data_dict = config['data']
@@ -71,68 +71,8 @@ class WeightedBCEWithLogitsLoss(torch.nn.Module):
         else:
             return loss
 
-
-class BinaryFocalWithLogitsLoss(torch.nn.Module):
-    def __init__(self, alpha:float, gamma:float, reduction='mean'):
-        super(BinaryFocalWithLogitsLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
-        
-        
-    def forward(self, input, target):
-        BCE_loss = F.binary_cross_entropy_with_logits(input, target, reduction='none')
-        pt = torch.exp(-BCE_loss)
-        loss = BCE_loss * (1-pt)**self.gamma
-        
-        if self.alpha >= 0:
-            alpha_t = self.alpha * target + (1-self.alpha) * (1-target)
-            loss = alpha_t * loss
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        else:
-            return loss       
-
     
 ############################# Data processing #############################
-
-def filter_gene_counts(df, threshold_num):
-    # get indices of samples with more than threshold_num genotypes
-    indices = df[df['num_genotypes'] > threshold_num].index
-    num_above = len(indices)
-    # drop samples with more than threshold_num genotypes
-    df.drop(indices, inplace=True)
-    print(f"Dropping {num_above} isolates with more than {threshold_num} genotypes")
-    return df
-
-
-def get_genotype_to_ab_class(unique_genotypes):
-    genotype_ref = pd.read_csv(os.path.join(BASE_DIR, config['data']['NCBI']['refgenes_path']), sep='\t')
-    genotype_ref = genotype_ref[(genotype_ref['Scope'] == 'core') & (genotype_ref['Type'] == 'AMR')].reset_index(drop=True)
-    pm_ref = genotype_ref[genotype_ref['Subtype'] == 'POINT']
-    gene_ref = genotype_ref[genotype_ref['Subtype'] != 'POINT']
-    pm_to_ab_class = pm_ref.set_index('#Allele')['Class'].to_dict()
-    gene_to_ab_class = gene_ref.set_index('Gene family')['Class'].to_dict()
-    gene_allele_to_ab_class = gene_ref[gene_ref['#Allele'].notna()].set_index('#Allele')['Class'].to_dict()
-    
-    genotype_to_ab_class = {}
-    for g in unique_genotypes:
-        if "aac(3)-II" in g: # aac(3)-II does not appear exactly in either the Allele or Gene family columns
-                    genotype_to_ab_class[g] = 'AMINOGLYCOSIDE'
-        else:   
-            if g.endswith('=POINT'):
-                genotype_to_ab_class[g] = pm_to_ab_class[g.split('=')[0]]
-            elif ('=PARTIAL' in g) or ('=HMM' in g) or ('=MISTRANSLATION' in g):
-                genotype_to_ab_class[g] = gene_to_ab_class[g.split('=')[0]]
-            else:
-                try:
-                    genotype_to_ab_class[g] = gene_to_ab_class[g]
-                except:
-                    genotype_to_ab_class[g] = gene_allele_to_ab_class[g]
-    return genotype_to_ab_class
-
 
 country_code_to_name = {
     'AD': 'Andorra', 'AL': 'Albania', 'AM': 'Armenia', 'AT': 'Austria', 'AZ': 'Azerbaijan', 'BA': 'Bosnia and Herzegovina',

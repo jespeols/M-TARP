@@ -6,16 +6,15 @@ import pandas as pd
 import os
 import sys
 from pathlib import Path
-from datetime import datetime
 from sklearn.model_selection import KFold
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent
 sys.path.append(str(BASE_DIR))
 os.chdir(BASE_DIR)
 
 # user-defined modules
-from multimodal.models import BERT
-from multimodal.datasets import MMFinetuneDataset
-from multimodal.trainers import MMBertFineTuner
+from model import Model
+from datasets.FinetuneDataset import FinetuneDataset
+from trainers.Finetuner import Finetuner
 
 # user-defined functions
 from utils import get_split_indices, export_results, get_average_and_std_df
@@ -53,6 +52,7 @@ def list_of_floats(arg):
     except:
         raise argparse.ArgumentTypeError("Argument must be a list of floats separated by commas")
 
+
 def list_of_strings(arg):
     try:
         return list(map(str, arg.split(',')))
@@ -60,35 +60,95 @@ def list_of_strings(arg):
         raise argparse.ArgumentTypeError("Argument must be a list of strings separated by commas")
 
 
+def parse_args(config_ft):
+    """Parse command-line arguments and return an updated config."""
+    parser = argparse.ArgumentParser()
+
+    # Experiment setup
+    parser.add_argument("--wandb_mode", type=str, default=config_ft.get('wandb_mode'), help="Wandb mode")
+    parser.add_argument("--name", type=str, default=config_ft.get('name'), help="Name of experiment")
+    parser.add_argument("--exp_folder", type=str, help="Name of experiment folder", default=config_ft.get('exp_folder'))
+    parser.add_argument("--model_path", type=str, help="Path to model state dict")
+    parser.add_argument("--ds_path", type=str, default=config_ft.get('ds_path'), help="Path to dataset")
+    parser.add_argument("--no_pt", action="store_true", help="Use randomly initialized model")
+    
+    # Model masking and filtering
+    parser.add_argument("--mask_prob_geno", type=float, default=config_ft.get('mask_prob_geno'), help="Masking probability for genotypes")
+    parser.add_argument("--no_geno_masking", action="store_true", help="Disable geno masking", default=config_ft.get('no_geno_masking'))
+    parser.add_argument("--mask_prob_pheno", type=float, default=config_ft.get('mask_prob_pheno'), help="Masking probability for phenotypes")
+    parser.add_argument("--num_known_ab", type=int, default=config_ft.get('num_known_ab'), help="Number of known antibiotics")
+    parser.add_argument("--num_known_classes", type=int, default=config_ft.get('num_known_classes'), help="Number of known classes")
+    parser.add_argument("--min_num_ab", type=int, help="Limit dataset to isolates with a minimum number of antibiotics")
+    
+    # Training parameters
+    parser.add_argument("--batch_size", type=int, default=config_ft.get('batch_size'), help="Batch size")
+    parser.add_argument("--epochs", type=int, default=config_ft.get('epochs'), help="Number of epochs")
+    parser.add_argument("--lr", type=float, default=config_ft.get('lr'), help="Learning rate")
+    parser.add_argument("--random_state", type=int, default=config_ft.get('random_state'), help="Random state")
+    
+    # Loss function
+    parser.add_argument("--wl_strength", type=str, choices=['mild', 'strong'], help="Weighted loss strength", default=config_ft.get('wl_strength'))
+
+    # Cross-validation and model saving
+    parser.add_argument("--train_shares", type=list, default=config_ft.get('train_shares'), help="List of shares for training sizes")
+    parser.add_argument("--no_cv", action="store_true", help="Disable cross-validation")
+    parser.add_argument("--val_share", type=float, default=config_ft.get('val_share'), help="Validation share when CV is disabled")
+    parser.add_argument("--num_folds", type=int, default=config_ft.get('num_folds'), help="Number of folds for cross-validation")
+    parser.add_argument("--save_model", action="store_true", help="Save model (last fold if CV is enabled)", default=config_ft.get('save_model'))
+    parser.add_argument("--save_best_model", action="store_true", help="Save best-performing model")
+    
+    return parser.parse_args()
+
+
+def update_config_with_args(config_ft, args):
+    """Update the config based on the parsed arguments."""
+    
+    if not args.no_pt:
+        assert args.model_path, "Path to model state dict must be provided using pretrained model."
+    
+    config_ft.update({
+        'wandb_mode': args.wandb_mode,
+        'name': args.name,
+        'exp_folder': args.exp_folder,
+        'model_path': None if args.no_pt else args.model_path,
+        'ds_path': args.ds_path,
+        'no_pt': args.no_pt,
+        'mask_prob_geno': args.mask_prob_geno,
+        'no_geno_masking': args.no_geno_masking,
+        'batch_size': args.batch_size,
+        'epochs': args.epochs,
+        'lr': args.lr,
+        'random_state': args.random_state,
+        'wl_strength': args.wl_strength,
+        'save_model': args.save_model,
+    })
+    
+    # Handle masking methods (only one can be chosen)
+    assert sum([
+        args.mask_prob_pheno is not None,
+        args.num_known_ab is not None,
+        args.num_known_classes is not None
+    ]) <= 1, "Choose only one masking method."
+
+    if args.mask_prob_pheno:
+        config_ft.update({'masking_method': 'random', 'mask_prob_pheno': args.mask_prob_pheno})
+        config_ft['num_known_ab'], config_ft['num_known_classes'] = None, None
+    elif args.num_known_ab:
+        config_ft.update({'masking_method': 'num_known_ab', 'num_known_ab': args.num_known_ab})
+        config_ft['mask_prob_pheno'], config_ft['num_known_classes'] = None, None
+    elif args.num_known_classes:
+        config_ft.update({'masking_method': 'num_known_classes', 'num_known_classes': args.num_known_classes})
+        config_ft['mask_prob_pheno'], config_ft['num_known_ab'] = None, None
+    
+    # Handle cross-validation
+    if not args.no_cv:
+        config_ft['num_folds'] = args.num_folds if args.num_folds else config_ft['num_folds']
+        config_ft['val_share'] = 1 / config_ft['num_folds']
+    else:
+        config_ft.update({'num_folds': None, 'val_share': args.val_share if args.val_share else config_ft['val_share']})
+
+
 if __name__ == "__main__":    
-    argparser = argparse.ArgumentParser()
-    argparser.add_argument("--wandb_mode", type=str)
-    argparser.add_argument("--name", type=str)
-    argparser.add_argument("--exp_folder", type=str, help="Name of experiment folder")
-    argparser.add_argument("--model_path", type=str)
-    argparser.add_argument("--ds_path", type=str)
-    argparser.add_argument("--no_pt", action="store_true", help="Enable naive model")
-    argparser.add_argument("--mask_prob_geno", type=float)
-    argparser.add_argument("--no_geno_masking", action="store_true", help="Disable geno masking")
-    argparser.add_argument("--mask_prob_pheno", type=float)
-    argparser.add_argument("--num_known_ab", type=int)
-    argparser.add_argument("--num_known_classes", type=int)
-    argparser.add_argument("--filter_genes_by_ab_class", type=list_of_strings, help="Filter genes by antibiotic classes provided in list")
-    argparser.add_argument("--filter_isolates_by_ab_class", type=list_of_strings, help="Filter isolates by presence of genes associated with antibiotic classes provided in list")
-    argparser.add_argument("--min_num_ab", type=int)
-    argparser.add_argument("--batch_size", type=int)
-    argparser.add_argument("--epochs", type=int)
-    argparser.add_argument("--loss_fn", type=str, help="Loss function to use")
-    argparser.add_argument("--wl_strength", type=str, help="Strength of weighted CE loss functions for antibiotics ('mild' or 'strong')")
-    argparser.add_argument("--gamma", type=float, help="Gamma parameter for focal loss")
-    argparser.add_argument("--lr", type=float)
-    argparser.add_argument("--random_state", type=int)
-    argparser.add_argument("--train_shares", type=list_of_floats, help="List of shares for training sizes to indices_list over")
-    argparser.add_argument("--no_cv", action="store_true", help="Disable cross-validation")
-    argparser.add_argument("--val_share", type=float, help="Validation share when CV is disabled")
-    argparser.add_argument("--num_folds", type=int)
-    argparser.add_argument("--save_model", action="store_true", help="Save model (from last fold if CV is enabled)")
-    argparser.add_argument("--save_best_model", action="store_true", help="Save model from best-performing fold")
         
     if device.type == "cuda":
         print(f"Using GPU: {torch.cuda.get_device_name(0)}")
@@ -99,71 +159,22 @@ if __name__ == "__main__":
     print(f"\nCurrent working directory: {os.getcwd()}")
     print("Loading config file...")
     
-    config_path = BASE_DIR / "config_MM.yaml"
+    config_path = BASE_DIR / "config.yaml"
     with open(config_path, "r") as config_file:
         config = yaml.safe_load(config_file)
-    config_ft = config['fine_tuning']
+    config_ft = config['finetuning']
     data_dict = config['data']
     
     # overwrite config with command line arguments
-    args = argparser.parse_args()
-    config_ft['wandb_mode'] = args.wandb_mode if args.wandb_mode else config_ft['wandb_mode']
-    config_ft['name'] = args.name if args.name else config_ft['name']
-    if args.save_model:
-        config_ft['save_model'] = True
-    if args.model_path:
-        config_ft['model_path'] = args.model_path
-    elif not config_ft['model_path']:
-        args.no_pt = True
-    config_ft['ds_path'] = args.ds_path if args.ds_path else config_ft['ds_path']
-    if args.no_pt:
-        config_ft['model_path'] = None
-        config_ft['no_pt'] = True
-    config_ft['mask_prob_geno'] = args.mask_prob_geno if args.mask_prob_geno else config_ft['mask_prob_geno']
-    config_ft['no_geno_masking'] = args.no_geno_masking if args.no_geno_masking else config_ft['no_geno_masking']
-    assert sum([
-        (args.mask_prob_pheno is not None), (args.num_known_ab is not None), (args.num_known_classes is not None)
-    ]) <= 1, "Choose only one masking method."
-    if args.mask_prob_pheno:
-        config_ft['masking_method'] = 'random'
-        config_ft['mask_prob_pheno'] = args.mask_prob_pheno
-        config_ft['num_known_ab'], config_ft['num_known_classes'] = None, None
-    elif args.num_known_ab:
-        config_ft['masking_method'] = 'num_known_ab'
-        config_ft['num_known_ab'] = args.num_known_ab
-        config_ft['mask_prob_pheno'], config_ft['num_known_classes'] = None, None
-    elif args.num_known_classes:
-        config_ft['masking_method'] = 'num_known_classes'
-        config_ft['num_known_classes'] = args.num_known_classes
-        config_ft['mask_prob_pheno'], config_ft['num_known_ab'] = None, None
-    config_ft['batch_size'] = args.batch_size if args.batch_size else config_ft['batch_size']
-    config_ft['epochs'] = args.epochs if args.epochs else config_ft['epochs']
-    config_ft['random_state'] = args.random_state if args.random_state else config_ft['random_state']
-    if args.loss_fn:
-        if not args.loss_fn in ['focal', 'bce']:
-            raise NotImplementedError("Invalid loss function, choose from ['focal', 'bce']")
-        config_ft['loss_fn'] = args.loss_fn
-    if args.wl_strength:
-        assert args.wl_strength in ['mild', 'strong'], "Invalid weighted loss strength, choose from ['mild', 'strong']"
-        config_ft['wl_strength'] = args.wl_strength   
-    if args.gamma:
-        assert config_ft['loss_fn'] == 'focal', 'Alpha and gamma parameters only available for focal loss function. Use weighted loss strength for BCE.'
-        config_ft['gamma'] = args.gamma if args.gamma else config_ft['gamma']
-    config_ft['lr'] = args.lr if args.lr else config_ft['lr']
+    args = parse_args(config_ft)
+    update_config_with_args(config_ft, args)
     train_shares = args.train_shares if args.train_shares else [0.8]
-    if not args.no_cv:
-        config_ft['num_folds'] = args.num_folds if args.num_folds else config_ft['num_folds']
-        config_ft['val_share'] = 1/config_ft['num_folds']
-    else:
-        config_ft['num_folds'] = None
-        config_ft['val_share'] = args.val_share if args.val_share else config_ft['val_share']
     
     os.environ['WANDB_MODE'] = config_ft['wandb_mode']
     
     print(f"\nLoading dataset from {os.path.join(BASE_DIR, config_ft['ds_path'])}...")
     ds_NCBI = pd.read_pickle(BASE_DIR / data_dict['NCBI']['load_path'])
     ds_MM = ds_NCBI[ds_NCBI['num_ab'] > 0].sample(frac=1, random_state=config_ft['random_state']).reset_index(drop=True)
-    # ds_MM = ds_MM[ds_MM['country'] != 'USA'].reset_index(drop=True) # smaller, non-American dataset
     abbr_to_class_enc = data_dict['antibiotics']['abbr_to_class_enc']
     ds_MM['ab_classes'] = ds_MM['phenotypes'].apply(lambda x: [abbr_to_class_enc[p.split('_')[0]] for p in x])
     if args.min_num_ab:
@@ -175,11 +186,6 @@ if __name__ == "__main__":
     specials = config['specials']
     pad_token = specials['PAD']
     ds_MM.fillna(pad_token, inplace=True)
-    
-    if args.filter_genes_by_ab_class:
-        data_dict['NCBI']['filter_genes_by_ab_class'] = args.filter_genes_by_ab_class
-    if args.filter_isolates_by_ab_class:
-        data_dict['NCBI']['filter_isolates_by_ab_class'] = args.filter_isolates_by_ab_class
 
     antibiotics = sorted(list(set(data_dict['antibiotics']['abbr_to_name'].keys()) - set(data_dict['exclude_antibiotics'])))
     vocab_size = len(vocab)
@@ -198,9 +204,9 @@ if __name__ == "__main__":
             config_ft['name'] = run_name
         if args.exp_folder:
             config_ft['exp_folder'] = args.exp_folder
-            p = Path(BASE_DIR / "results" / "MM" / args.exp_folder)
+            p = Path(BASE_DIR / "results" / args.exp_folder)
         else:
-            p = Path(BASE_DIR / "results" / "MM")
+            p = Path(BASE_DIR / "results")
         results_dir = Path(os.path.join(p, config_ft['name'])) 
         
         train_losses = []
@@ -242,7 +248,7 @@ if __name__ == "__main__":
                 train_size = int(len(train_indices) * train_share/(1-config_ft['val_share']))
                 train_indices = train_indices[:train_size]
             
-            ds_ft_train = MMFinetuneDataset(
+            ds_ft_train = FinetuneDataset(
                 df_MM=ds_MM.iloc[train_indices],
                 vocab=vocab,
                 antibiotics=antibiotics,
@@ -254,12 +260,10 @@ if __name__ == "__main__":
                 num_known_ab=config_ft['num_known_ab'],
                 num_known_classes=config_ft['num_known_classes'],
                 always_mask_replace=config_ft['always_mask_replace'],
-                filter_isolates_by_ab_class=data_dict['NCBI']['filter_isolates_by_ab_class'],
-                filter_genes_by_ab_class=data_dict['NCBI']['filter_genes_by_ab_class'],
                 random_state=config_ft['random_state'],
                 no_geno_masking=config_ft['no_geno_masking']
             )
-            ds_ft_val = MMFinetuneDataset(
+            ds_ft_val = FinetuneDataset(
                 df_MM=ds_MM.iloc[val_indices],
                 vocab=vocab,
                 antibiotics=antibiotics,
@@ -275,10 +279,18 @@ if __name__ == "__main__":
                 no_geno_masking=config_ft['no_geno_masking']
             )
             pad_idx = vocab[pad_token]
-            bert = BERT(config, vocab_size, max_seq_len, len(antibiotics), pad_idx, pheno_only=True).to(device)
-            tuner = MMBertFineTuner(
+            model = Model(
+                config, 
+                vocab_size, 
+                max_seq_len, 
+                len(antibiotics), 
+                pad_idx, 
+                pheno_only=True,
+                random_state=config_ft['random_state']
+            ).to(device)
+            tuner = Finetuner(
                 config=config,
-                model=bert,
+                model=model,
                 antibiotics=antibiotics,
                 train_set=ds_ft_train,
                 val_set=ds_ft_val,
@@ -287,7 +299,7 @@ if __name__ == "__main__":
                 CV_mode=True if num_folds else False,
             )
             if not config_ft['no_pt']:
-                tuner.load_model(Path(BASE_DIR / 'results' / 'MM' / config_ft['model_path']))
+                tuner.load_model(Path(BASE_DIR / config_ft['model_path']))
                 tuner.model.is_pretrained = True
             if j == 0:
                 tuner.print_model_summary()
@@ -304,7 +316,6 @@ if __name__ == "__main__":
                     "emb_dim": tuner.model.emb_dim,
                     'ff_dim': tuner.model.ff_dim,
                     "lr": tuner.lr,
-                    "loss_fn": tuner.loss_fn,
                     "ab_weights": tuner.ab_weights if tuner.wl_strength else None,
                     "weight_decay": tuner.weight_decay,
                     "masking_method": tuner.masking_method, 

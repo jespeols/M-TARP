@@ -1,5 +1,6 @@
 ### Project-specific ###
 data/raw
+data/*.pkl
 wandb
 results
 *.pt

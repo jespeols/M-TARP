@@ -7,15 +7,13 @@ from pathlib import Path
 # user-defined functions
 from utils import country_code_to_name
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 os.chdir(BASE_DIR)
 
-def preprocess_TESSy(path,
+def parse_TESSy(path,
                      pathogens: list,
                      save_path = None,
                      exclude_antibiotics: list = None,
-                     impute_gender: bool = False,
-                     impute_age: bool = False,
                      ):
     
     print(f"Reading in TESSy data from '{path}'...")
@@ -30,25 +28,21 @@ def preprocess_TESSy(path,
     TESSy_data['date'] = pd.to_datetime(TESSy_data['DateUsedForStatisticsISO'], format='%Y-%m-%d')
     TESSy_data.drop(columns=['DateUsedForStatisticsISO'], inplace=True)
     TESSy_data = TESSy_data[TESSy_data['SIR'] != 'I']
-    if (pathogens and len(pathogens) > 1) or not pathogens:
-        cols = ['ReportingCountry', 'date', 'year', 'LaboratoryCode', 'PatientCounter',
+    cols = ['ReportingCountry', 'date', 'year', 'LaboratoryCode', 'PatientCounter',
                 'Gender', 'Age','IsolateId', 'Pathogen', 'Antibiotic', 'SIR']
+    if (pathogens and len(pathogens) > 1) or not pathogens:
         df = TESSy_data[cols]
-        df = df.rename(columns={'ReportingCountry': 'country',
+        df = df.rename(columns={'Pathogen': 'pathogen'})
+    else:
+            cols.remove('Pathogen')
+            df = TESSy_data[cols]         
+    df = df.rename(columns={
+                'ReportingCountry': 'country',
                 'Gender': 'gender',
                 'Age': 'age',
-                'Pathogen': 'pathogen',
                 'Antibiotic': 'antibiotic',
-                'SIR': 'phenotype'})
-    else:
-            cols = ['ReportingCountry', 'date', 'year', 'LaboratoryCode', 'PatientCounter',
-                    'Gender', 'Age','IsolateId', 'Antibiotic', 'SIR']
-            df = TESSy_data[cols]
-            df = df.rename(columns={'ReportingCountry': 'country',
-                    'Gender': 'gender',
-                    'Age': 'age',
-                    'Antibiotic': 'antibiotic',
-                    'SIR': 'phenotype'})
+                'SIR': 'phenotype'
+                })
     
     # drop tests
     alternative_nan = ['unknown', 'UNKNOWN']
@@ -100,27 +94,18 @@ def preprocess_TESSy(path,
     df['num_ab'] = df['phenotypes'].apply(lambda x: len(x))
     df['num_R'] = df['phenotypes'].apply(lambda x: len([p for p in x if p.endswith('R')]))
     df['num_S'] = df['phenotypes'].apply(lambda x: len([p for p in x if p.endswith('S')]))
-    # make sure there are no samples without phenotypes
+    # make sure there are no isolates without phenotypes
     df = df[df['num_ab'] > 0]
     
-    if impute_age:
-        df = impute_col(df, 'age', random_state=42)
-    else:
-        print(f"Dropping {df['age'].isnull().sum():,} samples with missing value in the 'age' column")
-        df.dropna(subset=['age'], inplace=True)
+    print(f"Dropping {df['age'].isnull().sum():,} isolates with missing value in the 'age' column")
+    df.dropna(subset=['age'], inplace=True)
         
     alternative_nan = ["UNK", "O"]
     df['gender'].replace(alternative_nan, np.nan, inplace=True)
-    if impute_gender:
-        df = impute_col(df, 'gender', random_state=42)
-    else:
-        print(f"Dropping {df['gender'].isnull().sum():,} samples with missing value in the 'gender' column")
-        df.dropna(subset=['gender'], inplace=True)
+    print(f"Dropping {df['gender'].isnull().sum():,} isolates with missing value in the 'gender' column")
+    df.dropna(subset=['gender'], inplace=True)
 
-    if not any([impute_age, impute_gender]):
-        print(f"Number of samples after dropping samples with missing values: {df.shape[0]:,}")
-    else:
-        print(f"Final number of samples: {df.shape[0]:,}")
+    print(f"Number of isolates after dropping those with missing values: {df.shape[0]:,}")
     
     df.reset_index(drop=True, inplace=True)
     if save_path:
