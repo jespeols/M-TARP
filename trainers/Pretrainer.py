@@ -8,6 +8,7 @@ import wandb
 from torch.utils.data import DataLoader
 from pathlib import Path
 from datetime import datetime
+from copy import deepcopy
 
 from utils import WeightedBCEWithLogitsLoss
 
@@ -323,7 +324,7 @@ class Pretrainer(nn.Module):
         if self.val_losses[-1] < self.best_val_loss:
             self.best_val_loss = self.val_losses[-1]
             self.best_epoch = self.current_epoch
-            self.best_model_state = self.model.state_dict()
+            self.best_model_state = deepcopy(self.model.state_dict())
             self.early_stopping_counter = 0
             return False
         else:
